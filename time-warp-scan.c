@@ -9,14 +9,16 @@ struct tws_info {
 	gs_texrender_t *line_render;
 	uint32_t cx;
 	uint32_t cy;
+	uint32_t cd;
 	bool target_valid;
 	bool processed_frame;
 	obs_hotkey_pair_id hotkey;
 	uint64_t scan_duration;
 	uint32_t line_width;
 	struct vec4 line_color;
-	uint64_t line_position;
+	float line_position;
 	double duration;
+	float rotation;
 };
 
 static const char *tws_get_name(void *type_data)
@@ -55,6 +57,7 @@ static inline bool check_size(struct tws_info *f)
 	if (cx != f->cx || cy != f->cy) {
 		f->cx = cx;
 		f->cy = cy;
+		f->cd = ceil(sqrt((cx * cx) + (cy * cy)));
 		free_textures(f);
 		return true;
 	}
@@ -70,6 +73,8 @@ static void tws_update(void *data, obs_data_t *settings)
 	const uint32_t color =
 		(uint32_t)obs_data_get_int(settings, "line_color");
 	vec4_from_rgba(&tws->line_color, color);
+	tws->rotation =
+		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
 }
 
 static void *tws_create(obs_data_t *settings, obs_source_t *source)
@@ -110,25 +115,11 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	obs_source_t *target = obs_filter_get_target(tws->source);
 	obs_source_t *parent = obs_filter_get_parent(tws->source);
 
+	obs_source_skip_video_filter(tws->source);
 	if (!tws->target_valid || !target || !parent) {
-		obs_source_skip_video_filter(tws->source);
 		return;
-	}
-	uint32_t new_line_position;
-	if (tws->duration * 1000.0 > (double)tws->scan_duration) {
-		new_line_position = tws->cy + tws->line_width;
-	} else {
-		obs_source_skip_video_filter(tws->source);
-		new_line_position = (uint32_t)(
-			(double)(tws->cy + tws->line_width) *
-			(tws->duration * 1000.0 / (double)tws->scan_duration));
 	}
 	if (tws->processed_frame) {
-		draw_frame(tws);
-		return;
-	}
-	if (new_line_position == tws->line_position) {
-		tws->processed_frame = true;
 		draw_frame(tws);
 		return;
 	}
@@ -138,18 +129,74 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	} else {
 		gs_texrender_reset(tws->scan_render);
 	}
+	double factor;
+	float new_line_position;
+	double start_x = 0.0;
+	double start_y = 0.0;
+	double scan_x = 0.0;
+	double scan_y = 0.0;
+	const double factor_y = sin(RAD(tws->rotation));
+	const double factor_x = cos(RAD(tws->rotation));
 
-	uint32_t scan_width = 0;
-	if (new_line_position > tws->line_position) {
-		if (tws->line_position <= tws->line_width) {
-			if (new_line_position > tws->line_width) {
-				scan_width =
-					new_line_position - tws->line_width;
+	const double test_y = tws->cx * factor_y;
+	const double test_x = tws->cy * factor_x;
+	if (fabs(test_x) > fabs(test_y)) {
+		// move y direction
+		if (test_x > 0.0) {
+			// move down
+			scan_y = tws->cy + tws->cx * fabs(factor_y) +
+				 tws->line_width;
+			if (test_y > 0.0) {
+				start_y = fabs(test_y) + tws->line_width;
+			} else {
+				start_y = tws->line_width;
 			}
 		} else {
-			scan_width = new_line_position - tws->line_position;
+			// move up
+			scan_y = -1.0 * (tws->cy + tws->cx * fabs(factor_y) +
+					 tws->line_width);
+			if (test_y < 0.0) {
+				start_y = scan_y;
+			} else {
+				start_y = (double)(tws->cy + tws->line_width) *
+					  -1.0;
+			}
+			start_x = (double)(tws->cx + tws->line_width) * -1.0;
 		}
+		new_line_position = fabs(scan_y) * (tws->duration * 1000.0 /
+						    (double)tws->scan_duration);
+		factor = tws->line_position / fabs(scan_y);
+	} else {
+		// move x direction
+		if (test_y < 0) {
+			// move right
+			scan_x = tws->cx + tws->cy * fabs(factor_x) +
+				 tws->line_width;
+			if (test_x > 0.0) {
+				start_x = tws->cx * fabs(factor_x) +
+					  tws->line_width;
+			} else {
+				start_x = tws->line_width;
+			}
+			start_y = (double)tws->cy * -1.0;
+		} else {
+			// move left
+			scan_x = -1.0 * (tws->cx + tws->cy * fabs(factor_x) +
+					 tws->line_width);
+			if (test_x < 0.0) {
+				start_x = scan_x;
+			} else {
+				start_x = (double)(tws->cx + tws->line_width) *
+					  -1.0;
+			}
+		}
+		new_line_position = fabs(scan_x) * (tws->duration * 1000.0 /
+						    (double)tws->scan_duration);
+		factor = tws->line_position / fabs(scan_x);
 	}
+
+	uint32_t scan_width = ceil(new_line_position - tws->line_position);
+
 	if (scan_width > 0) {
 		if (!tws->line_render) {
 			tws->line_render =
@@ -163,14 +210,19 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
 	if (scan_width > 0) {
-		if (gs_texrender_begin(tws->line_render, tws->cx, scan_width)) {
-			gs_ortho(0.0f, (float)tws->cx, 0.0f, scan_width,
+		if (gs_texrender_begin(tws->line_render, tws->cd, scan_width)) {
+			struct vec4 clear_color;
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)tws->cd, 0.0f, scan_width,
 				 -100.0f, 100.0f);
-			gs_matrix_translate3f(
-				0.0f,
-				-1.0f * ((float)tws->line_position -
-					 (float)tws->line_width),
-				0.0f);
+
+			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
+					  RAD(tws->rotation));
+			gs_matrix_translate3f(-1.0 * factor * scan_x + start_x,
+					      -1.0 * factor * scan_y + start_y,
+					      0.0f);
+
 			const uint32_t parent_flags =
 				obs_source_get_output_flags(target);
 			const bool custom_draw =
@@ -187,18 +239,18 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	}
 
 	if (gs_texrender_begin(tws->scan_render, tws->cx, tws->cy)) {
-		if (tws->line_position == 0) {
+		if (tws->line_position <= 0.0f) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 		}
 		gs_ortho(0.0f, (float)tws->cx, 0, (float)tws->cy, -100.0f,
 			 100.0f);
-		if (scan_width == 0 || tws->line_position > tws->line_width) {
-			gs_matrix_translate3f(
-				0.0f, tws->line_position - tws->line_width,
-				0.0f);
-		}
+		gs_matrix_translate3f(factor * scan_x - start_x,
+				      factor * scan_y - start_y, 0.0f);
+
+		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(tws->rotation));
+
 		if (scan_width > 0) {
 			gs_texture_t *tex =
 				gs_texrender_get_texture(tws->line_render);
@@ -210,11 +262,11 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 								    "image");
 				gs_effect_set_texture(image, tex);
 				while (gs_effect_loop(effect, "Draw"))
-					gs_draw_sprite(tex, 0, tws->cx,
+					gs_draw_sprite(tex, 0, tws->cd,
 						       scan_width);
 			}
 		}
-		gs_matrix_translate3f(0.0f, scan_width, 0.0f);
+		gs_matrix_translate3f(-1.0f * tws->line_width , scan_width, 0.0f);
 
 		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 		gs_eparam_t *color =
@@ -225,7 +277,8 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		gs_technique_begin(tech);
 		gs_technique_begin_pass(tech, 0);
 
-		gs_draw_sprite(0, 0, tws->cx, tws->line_width);
+		gs_draw_sprite(0, 0, tws->cd + tws->line_width * 2,
+			       tws->line_width);
 
 		gs_technique_end_pass(tech);
 		gs_technique_end(tech);
@@ -256,6 +309,10 @@ static obs_properties_t *tws_properties(void *data)
 
 	p = obs_properties_add_color(ppts, "line_color",
 				     obs_module_text("LineColor"));
+
+	p = obs_properties_add_float_slider(
+		ppts, "rotation", obs_module_text("Rotation"), 0.0, 360.0, 1.0);
+	obs_property_float_set_suffix(p, obs_module_text("Degrees"));
 	return ppts;
 }
 
@@ -299,7 +356,7 @@ static void tws_tick(void *data, float t)
 		f->duration += (double)t;
 	} else {
 		f->duration = 0.0;
-		f->line_position = 0;
+		f->line_position = 0.0f;
 	}
 	if (f->hotkey == OBS_INVALID_HOTKEY_PAIR_ID) {
 		obs_source_t *parent = obs_filter_get_parent(f->source);
