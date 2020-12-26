@@ -2,6 +2,9 @@
 
 Plugin for OBS Studio to time warp scan a source using a filter
 
+# Download
+https://obsproject.com/forum/resources/time-warp-scan.1167/
+
 # Build
 - Build OBS Studio: https://obsproject.com/wiki/Install-Instructions
 - Check out this repository to plugins/time-warp-scan
