@@ -19,6 +19,11 @@ struct tws_info {
 	float line_position;
 	double duration;
 	float rotation;
+
+	double start_x;
+	double start_y;
+	double scan_x;
+	double scan_y;
 };
 
 static const char *tws_get_name(void *type_data)
@@ -37,6 +42,71 @@ static void free_textures(struct tws_info *f)
 	gs_texrender_destroy(f->line_render);
 	f->line_render = NULL;
 	obs_leave_graphics();
+}
+
+void calc_scan(struct tws_info *tws)
+{
+	const double c = cos(RAD(tws->rotation));
+	const double s = sin(RAD(tws->rotation));
+	const double line_length_moving_x = tws->cy * c;
+	const double line_length_moving_y = tws->cx * s;
+	const double t = tan(RAD((double)tws->rotation));
+	const double at = atan(RAD((double)tws->rotation));
+	if (fabs(line_length_moving_x) > fabs(line_length_moving_y)) {
+		// move y direction
+		if (line_length_moving_x > 0.0) {
+			// move down
+			tws->scan_y = tws->cy + tws->line_width +
+				      (double)tws->cx * fabs(t);
+			if (line_length_moving_y > 0.0) {
+				tws->start_y = (double)tws->cx * fabs(t) +
+					       (double)tws->line_width;
+			} else {
+				tws->start_y = (double)tws->line_width;
+			}
+			tws->start_x = 0.0;
+		} else {
+			// move up
+			tws->scan_y = -1.0 * (tws->cy + tws->line_width +
+					      tws->cx * fabs(t));
+			if (line_length_moving_y < 0.0) {
+				tws->start_y = tws->scan_y;
+			} else {
+				tws->start_y =
+					(double)(tws->cy + tws->line_width) *
+					-1.0;
+			}
+			tws->start_x = (double)tws->cx * -1.0;
+		}
+		tws->scan_x = 0.0;
+	} else {
+		// move x direction
+		if (line_length_moving_y < 0.0) {
+			// move right
+			tws->scan_x =
+				tws->cx + tws->line_width + tws->cy * fabs(at);
+			if (line_length_moving_x > 0.0) {
+				tws->start_x =
+					tws->cy * fabs(at) + tws->line_width;
+			} else {
+				tws->start_x = tws->line_width;
+			}
+			tws->start_y = (double)tws->cy * -1.0;
+		} else {
+			// move left
+			tws->scan_x = -1.0 * (tws->cx + tws->cy * fabs(at) +
+					      tws->line_width);
+			if (line_length_moving_x < 0.0) {
+				tws->start_x = tws->scan_x;
+			} else {
+				tws->start_x =
+					(double)(tws->cx + tws->line_width) *
+					-1.0;
+			}
+			tws->start_y = 0.0;
+		}
+		tws->scan_y = 0.0;
+	}
 }
 
 static inline bool check_size(struct tws_info *f)
@@ -58,6 +128,7 @@ static inline bool check_size(struct tws_info *f)
 		f->cx = cx;
 		f->cy = cy;
 		f->cd = ceil(sqrt((cx * cx) + (cy * cy)));
+		calc_scan(f);
 		free_textures(f);
 		return true;
 	}
@@ -75,6 +146,7 @@ static void tws_update(void *data, obs_data_t *settings)
 	vec4_from_rgba(&tws->line_color, color);
 	tws->rotation =
 		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
+	calc_scan(tws);
 }
 
 static void *tws_create(obs_data_t *settings, obs_source_t *source)
@@ -131,72 +203,18 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	}
 	double factor;
 	float new_line_position;
-	double start_x = 0.0;
-	double start_y = 0.0;
-	double scan_x = 0.0;
-	double scan_y = 0.0;
-	const double factor_y = sin(RAD(tws->rotation));
-	const double factor_x = cos(RAD(tws->rotation));
-
-	const double test_y = tws->cx * factor_y;
-	const double test_x = tws->cy * factor_x;
-	if (fabs(test_x) > fabs(test_y)) {
-		// move y direction
-		if (test_x > 0.0) {
-			// move down
-			scan_y = tws->cy + tws->cx * fabs(factor_y) +
-				 tws->line_width;
-			if (test_y > 0.0) {
-				start_y = fabs(test_y) + tws->line_width;
-			} else {
-				start_y = tws->line_width;
-			}
-		} else {
-			// move up
-			scan_y = -1.0 * (tws->cy + tws->cx * fabs(factor_y) +
-					 tws->line_width);
-			if (test_y < 0.0) {
-				start_y = scan_y;
-			} else {
-				start_y = (double)(tws->cy + tws->line_width) *
-					  -1.0;
-			}
-			start_x = (double)(tws->cx + tws->line_width) * -1.0;
-		}
-		new_line_position = fabs(scan_y) * (tws->duration * 1000.0 /
-						    (double)tws->scan_duration);
-		factor = tws->line_position / fabs(scan_y);
+	if (fabs(tws->scan_x) > fabs(tws->scan_y)) {
+		new_line_position =
+			fabs(tws->scan_x) *
+			(tws->duration * 1000.0 / (double)tws->scan_duration);
+		factor = tws->line_position / fabs(tws->scan_x);
 	} else {
-		// move x direction
-		if (test_y < 0) {
-			// move right
-			scan_x = tws->cx + tws->cy * fabs(factor_x) +
-				 tws->line_width;
-			if (test_x > 0.0) {
-				start_x = tws->cx * fabs(factor_x) +
-					  tws->line_width;
-			} else {
-				start_x = tws->line_width;
-			}
-			start_y = (double)tws->cy * -1.0;
-		} else {
-			// move left
-			scan_x = -1.0 * (tws->cx + tws->cy * fabs(factor_x) +
-					 tws->line_width);
-			if (test_x < 0.0) {
-				start_x = scan_x;
-			} else {
-				start_x = (double)(tws->cx + tws->line_width) *
-					  -1.0;
-			}
-		}
-		new_line_position = fabs(scan_x) * (tws->duration * 1000.0 /
-						    (double)tws->scan_duration);
-		factor = tws->line_position / fabs(scan_x);
+		new_line_position =
+			fabs(tws->scan_y) *
+			(tws->duration * 1000.0 / (double)tws->scan_duration);
+		factor = tws->line_position / fabs(tws->scan_y);
 	}
-
 	uint32_t scan_width = ceil(new_line_position - tws->line_position);
-
 	if (scan_width > 0) {
 		if (!tws->line_render) {
 			tws->line_render =
@@ -210,18 +228,21 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
 	if (scan_width > 0) {
-		if (gs_texrender_begin(tws->line_render, tws->cd, scan_width)) {
+		if (gs_texrender_begin(tws->line_render,
+				       tws->cd + scan_width * 2, scan_width)) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, (float)tws->cd, 0.0f, scan_width,
-				 -100.0f, 100.0f);
+			gs_ortho(0.0f, (float)tws->cd + scan_width * 2, 0.0f,
+				 scan_width, -100.0f, 100.0f);
 
+			gs_matrix_translate3f(scan_width, 0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
 					  RAD(tws->rotation));
-			gs_matrix_translate3f(-1.0 * factor * scan_x + start_x,
-					      -1.0 * factor * scan_y + start_y,
-					      0.0f);
+			gs_matrix_translate3f(
+				-1.0 * factor * tws->scan_x + tws->start_x,
+				-1.0 * factor * tws->scan_y + tws->start_y,
+				0.0f);
 
 			const uint32_t parent_flags =
 				obs_source_get_output_flags(target);
@@ -246,11 +267,12 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		}
 		gs_ortho(0.0f, (float)tws->cx, 0, (float)tws->cy, -100.0f,
 			 100.0f);
-		gs_matrix_translate3f(factor * scan_x - start_x,
-				      factor * scan_y - start_y, 0.0f);
+		gs_matrix_translate3f(factor * tws->scan_x - tws->start_x,
+				      factor * tws->scan_y - tws->start_y,
+				      0.0f);
 
 		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(tws->rotation));
-
+		gs_matrix_translate3f(-1.0f * scan_width, 0.0f, 0.0f);
 		if (scan_width > 0) {
 			gs_texture_t *tex =
 				gs_texrender_get_texture(tws->line_render);
@@ -262,11 +284,13 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 								    "image");
 				gs_effect_set_texture(image, tex);
 				while (gs_effect_loop(effect, "Draw"))
-					gs_draw_sprite(tex, 0, tws->cd,
+					gs_draw_sprite(tex, 0,
+						       tws->cd + scan_width * 2,
 						       scan_width);
 			}
 		}
-		gs_matrix_translate3f(-1.0f * tws->line_width , scan_width, 0.0f);
+		gs_matrix_translate3f(-1.0f * tws->line_width, scan_width,
+				      0.0f);
 
 		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 		gs_eparam_t *color =
@@ -277,7 +301,8 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		gs_technique_begin(tech);
 		gs_technique_begin_pass(tech, 0);
 
-		gs_draw_sprite(0, 0, tws->cd + tws->line_width * 2,
+		gs_draw_sprite(0, 0,
+			       tws->cd + (tws->line_width + scan_width) * 2,
 			       tws->line_width);
 
 		gs_technique_end_pass(tech);
