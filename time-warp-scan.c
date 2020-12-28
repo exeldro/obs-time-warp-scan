@@ -46,16 +46,13 @@ static void free_textures(struct tws_info *f)
 
 void calc_scan(struct tws_info *tws)
 {
-	const double c = cos(RAD(tws->rotation));
-	const double s = sin(RAD(tws->rotation));
-	const double line_length_moving_x = tws->cy * c;
-	const double line_length_moving_y = tws->cx * s;
-	const double t = tan(RAD((double)tws->rotation));
-	const double at = atan(RAD((double)tws->rotation));
+	const double line_length_moving_x = tws->cy * cos(RAD(tws->rotation));
+	const double line_length_moving_y = tws->cx * sin(RAD(tws->rotation));
 	if (fabs(line_length_moving_x) > fabs(line_length_moving_y)) {
 		// move y direction
 		if (line_length_moving_x > 0.0) {
 			// move down
+			const double t = tan(RAD((double)tws->rotation));
 			tws->scan_y = tws->cy + tws->line_width +
 				      (double)tws->cx * fabs(t);
 			if (line_length_moving_y > 0.0) {
@@ -67,6 +64,7 @@ void calc_scan(struct tws_info *tws)
 			tws->start_x = 0.0;
 		} else {
 			// move up
+			const double t = tan(RAD((double)tws->rotation + 180));
 			tws->scan_y = -1.0 * (tws->cy + tws->line_width +
 					      tws->cx * fabs(t));
 			if (line_length_moving_y < 0.0) {
@@ -83,18 +81,21 @@ void calc_scan(struct tws_info *tws)
 		// move x direction
 		if (line_length_moving_y < 0.0) {
 			// move right
+			const double t =
+				tan(RAD((double)tws->rotation + 270.0));
 			tws->scan_x =
-				tws->cx + tws->line_width + tws->cy * fabs(at);
+				tws->cx + tws->line_width + tws->cy * fabs(t);
 			if (line_length_moving_x > 0.0) {
 				tws->start_x =
-					tws->cy * fabs(at) + tws->line_width;
+					tws->cy * fabs(t) + tws->line_width;
 			} else {
 				tws->start_x = tws->line_width;
 			}
 			tws->start_y = (double)tws->cy * -1.0;
 		} else {
 			// move left
-			tws->scan_x = -1.0 * (tws->cx + tws->cy * fabs(at) +
+			const double t = tan(RAD((double)tws->rotation + 90.0));
+			tws->scan_x = -1.0 * (tws->cx + tws->cy * fabs(t) +
 					      tws->line_width);
 			if (line_length_moving_x < 0.0) {
 				tws->start_x = tws->scan_x;
@@ -144,6 +145,8 @@ static void tws_update(void *data, obs_data_t *settings)
 	const uint32_t color =
 		(uint32_t)obs_data_get_int(settings, "line_color");
 	vec4_from_rgba(&tws->line_color, color);
+	tws->line_color.w =
+		(float)(obs_data_get_double(settings, "line_opacity") / 100.0);
 	tws->rotation =
 		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
 	calc_scan(tws);
@@ -334,7 +337,10 @@ static obs_properties_t *tws_properties(void *data)
 
 	p = obs_properties_add_color(ppts, "line_color",
 				     obs_module_text("LineColor"));
-
+	p = obs_properties_add_float_slider(ppts, "line_opacity",
+					    obs_module_text("LineOpacity"), 0.0,
+					    100.0, 1.0);
+	obs_property_float_set_suffix(p, "%");
 	p = obs_properties_add_float_slider(
 		ppts, "rotation", obs_module_text("Rotation"), 0.0, 360.0, 1.0);
 	obs_property_float_set_suffix(p, obs_module_text("Degrees"));
@@ -346,6 +352,7 @@ void tws_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "scan_duration", 10000);
 	obs_data_set_default_int(settings, "line_width", 3);
 	obs_data_set_default_int(settings, "line_color", 0xffffff55);
+	obs_data_set_default_double(settings, "line_opacity", 100.0);
 }
 
 bool tws_enable_hotkey(void *data, obs_hotkey_pair_id id, obs_hotkey_t *hotkey,

@@ -1,4 +1,4 @@
-project(time-warp-scan VERSION 0.1.1)
+project(time-warp-scan VERSION 0.1.2)
 set(PROJECT_FULL_NAME "Time Warp Scan")
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/version.h)
