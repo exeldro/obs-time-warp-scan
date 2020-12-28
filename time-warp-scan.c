@@ -19,6 +19,7 @@ struct tws_info {
 	float line_position;
 	double duration;
 	float rotation;
+	bool transparent;
 
 	double start_x;
 	double start_y;
@@ -149,6 +150,7 @@ static void tws_update(void *data, obs_data_t *settings)
 		(float)(obs_data_get_double(settings, "line_opacity") / 100.0);
 	tws->rotation =
 		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
+	tws->transparent = obs_data_get_bool(settings, "transparent");
 	calc_scan(tws);
 }
 
@@ -190,11 +192,18 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	obs_source_t *target = obs_filter_get_target(tws->source);
 	obs_source_t *parent = obs_filter_get_parent(tws->source);
 
-	obs_source_skip_video_filter(tws->source);
 	if (!tws->target_valid || !target || !parent) {
+		obs_source_skip_video_filter(tws->source);
 		return;
 	}
+	if (tws->transparent)
+		obs_source_skip_video_filter(tws->source);
 	if (tws->processed_frame) {
+		draw_frame(tws);
+		return;
+	}
+	if (tws->duration * 1000.0 > (double)tws->scan_duration) {
+		tws->processed_frame = true;
 		draw_frame(tws);
 		return;
 	}
@@ -232,14 +241,14 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 
 	if (scan_width > 0) {
 		if (gs_texrender_begin(tws->line_render,
-				       tws->cd + scan_width * 2, scan_width)) {
+				       (tws->cd + scan_width) * 2, tws->cd)) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
-			gs_ortho(0.0f, (float)tws->cd + scan_width * 2, 0.0f,
-				 scan_width, -100.0f, 100.0f);
+			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
+				 tws->cd, -100.0f, 100.0f);
 
-			gs_matrix_translate3f(scan_width, 0.0f, 0.0f);
+			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
 					  RAD(tws->rotation));
 			gs_matrix_translate3f(
@@ -275,7 +284,8 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				      0.0f);
 
 		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(tws->rotation));
-		gs_matrix_translate3f(-1.0f * scan_width, 0.0f, 0.0f);
+		gs_matrix_translate3f(-1.0f * (scan_width + tws->cd), 0.0f,
+				      0.0f);
 		if (scan_width > 0) {
 			gs_texture_t *tex =
 				gs_texrender_get_texture(tws->line_render);
@@ -288,13 +298,14 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				gs_effect_set_texture(image, tex);
 				while (gs_effect_loop(effect, "Draw"))
 					gs_draw_sprite(tex, 0,
-						       tws->cd + scan_width * 2,
-						       scan_width);
+						       (tws->cd + scan_width) *
+							       2,
+						       tws->cd);
 			}
 		}
 		gs_matrix_translate3f(-1.0f * tws->line_width, scan_width,
 				      0.0f);
-
+		gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
 		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 		gs_eparam_t *color =
 			gs_effect_get_param_by_name(solid, "color");
@@ -305,7 +316,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		gs_technique_begin_pass(tech, 0);
 
 		gs_draw_sprite(0, 0,
-			       tws->cd + (tws->line_width + scan_width) * 2,
+			       (tws->cd + tws->line_width + scan_width) * 2,
 			       tws->line_width);
 
 		gs_technique_end_pass(tech);
@@ -344,6 +355,8 @@ static obs_properties_t *tws_properties(void *data)
 	p = obs_properties_add_float_slider(
 		ppts, "rotation", obs_module_text("Rotation"), 0.0, 360.0, 1.0);
 	obs_property_float_set_suffix(p, obs_module_text("Degrees"));
+	p = obs_properties_add_bool(ppts, "transparent",
+				    obs_module_text("Transparent"));
 	return ppts;
 }
 
