@@ -47,6 +47,13 @@ static void free_textures(struct tws_info *f)
 
 void calc_scan(struct tws_info *tws)
 {
+	if (tws->cy == 0 || tws->cx == 0) {
+		tws->start_x = 0.0;
+		tws->start_y = 0.0;
+		tws->scan_x = 1.0;
+		tws->scan_y = 0.0;
+		return;
+	}
 	const double line_length_moving_x = tws->cy * cos(RAD(tws->rotation));
 	const double line_length_moving_y = tws->cx * sin(RAD(tws->rotation));
 	if (fabs(line_length_moving_x) > fabs(line_length_moving_y)) {
@@ -78,6 +85,8 @@ void calc_scan(struct tws_info *tws)
 			tws->start_x = (double)tws->cx * -1.0;
 		}
 		tws->scan_x = 0.0;
+		tws->cd = ceil(sqrt((tws->cx * tws->cx) +
+				    (fabs(tws->scan_y) * fabs(tws->scan_y))));
 	} else {
 		// move x direction
 		if (line_length_moving_y < 0.0) {
@@ -108,6 +117,8 @@ void calc_scan(struct tws_info *tws)
 			tws->start_y = 0.0;
 		}
 		tws->scan_y = 0.0;
+		tws->cd = ceil(sqrt((tws->cy * tws->cy) +
+				    (fabs(tws->scan_x) * fabs(tws->scan_x))));
 	}
 }
 
@@ -129,7 +140,6 @@ static inline bool check_size(struct tws_info *f)
 	if (cx != f->cx || cy != f->cy) {
 		f->cx = cx;
 		f->cy = cy;
-		f->cd = ceil(sqrt((cx * cx) + (cy * cy)));
 		calc_scan(f);
 		free_textures(f);
 		return true;
@@ -241,12 +251,14 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 
 	if (scan_width > 0) {
 		if (gs_texrender_begin(tws->line_render,
-				       (tws->cd + scan_width) * 2, tws->cd)) {
+				       (tws->cd + scan_width) * 2,
+				       tws->transparent ? scan_width: tws->cd)) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
-				 tws->cd, -100.0f, 100.0f);
+				 tws->transparent ? scan_width : tws->cd,
+				 -100.0f, 100.0f);
 
 			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
@@ -300,7 +312,8 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 					gs_draw_sprite(tex, 0,
 						       (tws->cd + scan_width) *
 							       2,
-						       tws->cd);
+						tws->transparent ? scan_width
+								 : tws->cd);
 			}
 		}
 		gs_matrix_translate3f(-1.0f * tws->line_width, scan_width,
