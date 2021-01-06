@@ -1,12 +1,14 @@
 #include <obs-module.h>
 #include "time-warp-scan.h"
 #include "version.h"
+#include "graphics/image-file.h"
 
 struct tws_info {
 	obs_source_t *source;
 
 	gs_texrender_t *scan_render;
 	gs_texrender_t *line_render;
+	gs_image_file2_t image;
 	uint32_t cx;
 	uint32_t cy;
 	uint32_t cd;
@@ -161,6 +163,15 @@ static void tws_update(void *data, obs_data_t *settings)
 	tws->rotation =
 		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
 	tws->transparent = obs_data_get_bool(settings, "transparent");
+	const char *file = obs_data_get_string(settings, "image");
+	obs_enter_graphics();
+	gs_image_file2_free(&tws->image);
+	if (file && *file) {
+		gs_image_file2_init(&tws->image, file);
+		gs_image_file2_init_texture(&tws->image);
+	}
+	obs_leave_graphics();
+
 	calc_scan(tws);
 }
 
@@ -206,6 +217,9 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		obs_source_skip_video_filter(tws->source);
 		return;
 	}
+	if (tws->image.image.loaded)
+		tws->transparent = true;
+
 	if (tws->transparent)
 		obs_source_skip_video_filter(tws->source);
 	if (tws->processed_frame) {
@@ -250,9 +264,9 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
 	if (scan_width > 0) {
-		if (gs_texrender_begin(tws->line_render,
-				       (tws->cd + scan_width) * 2,
-				       tws->transparent ? scan_width: tws->cd)) {
+		if (gs_texrender_begin(
+			    tws->line_render, (tws->cd + scan_width) * 2,
+			    tws->transparent ? scan_width : tws->cd)) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
@@ -267,7 +281,20 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				-1.0 * factor * tws->scan_x + tws->start_x,
 				-1.0 * factor * tws->scan_y + tws->start_y,
 				0.0f);
+			if (tws->image.image.loaded) {
+				gs_effect_t *effect =
+					obs_get_base_effect(OBS_EFFECT_DEFAULT);
+				gs_effect_set_texture(
+					gs_effect_get_param_by_name(effect,
+								    "image"),
+					tws->image.image.texture);
+				while (gs_effect_loop(effect, "Draw"))
+					gs_draw_sprite(tws->image.image.texture,
+						       0, tws->cx, tws->cy);
 
+				gs_blend_function(GS_BLEND_SRCALPHA,
+						  GS_BLEND_INVSRCALPHA);
+			}
 			const uint32_t parent_flags =
 				obs_source_get_output_flags(target);
 			const bool custom_draw =
@@ -280,6 +307,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				obs_source_video_render(target);
 
 			gs_texrender_end(tws->line_render);
+			gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 		}
 	}
 
@@ -309,9 +337,9 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 								    "image");
 				gs_effect_set_texture(image, tex);
 				while (gs_effect_loop(effect, "Draw"))
-					gs_draw_sprite(tex, 0,
-						       (tws->cd + scan_width) *
-							       2,
+					gs_draw_sprite(
+						tex, 0,
+						(tws->cd + scan_width) * 2,
 						tws->transparent ? scan_width
 								 : tws->cd);
 			}
@@ -347,6 +375,17 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	draw_frame(tws);
 }
 
+static const char *image_filter =
+	"All formats (*.bmp *.tga *.png *.jpeg *.jpg *.gif *.psd *.webp);;"
+	"BMP Files (*.bmp);;"
+	"Targa Files (*.tga);;"
+	"PNG Files (*.png);;"
+	"JPEG Files (*.jpeg *.jpg);;"
+	"GIF Files (*.gif);;"
+	"PSD Files (*.psd);;"
+	"WebP Files (*.webp);;"
+	"All Files (*.*)";
+
 static obs_properties_t *tws_properties(void *data)
 {
 	obs_properties_t *ppts = obs_properties_create();
@@ -370,6 +409,11 @@ static obs_properties_t *tws_properties(void *data)
 	obs_property_float_set_suffix(p, obs_module_text("Degrees"));
 	p = obs_properties_add_bool(ppts, "transparent",
 				    obs_module_text("Transparent"));
+
+	obs_properties_add_path(ppts, "image",
+				obs_module_text("BackgroundImage"),
+				OBS_PATH_FILE, image_filter, NULL);
+
 	return ppts;
 }
 
