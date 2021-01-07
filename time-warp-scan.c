@@ -8,6 +8,7 @@ struct tws_info {
 
 	gs_texrender_t *scan_render;
 	gs_texrender_t *line_render;
+	gs_texrender_t *bg_line_render;
 	gs_image_file2_t image;
 	uint32_t cx;
 	uint32_t cy;
@@ -37,13 +38,16 @@ static const char *tws_get_name(void *type_data)
 
 static void free_textures(struct tws_info *f)
 {
-	if (!f->scan_render && !f->line_render)
+	if (!f->scan_render && !f->line_render && !f->bg_line_render)
 		return;
 	obs_enter_graphics();
 	gs_texrender_destroy(f->scan_render);
 	f->scan_render = NULL;
 	gs_texrender_destroy(f->line_render);
 	f->line_render = NULL;
+	gs_texrender_destroy(f->bg_line_render);
+	f->bg_line_render = NULL;
+	gs_image_file2_free(&f->image);
 	obs_leave_graphics();
 }
 
@@ -217,8 +221,6 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		obs_source_skip_video_filter(tws->source);
 		return;
 	}
-	if (tws->image.image.loaded)
-		tws->transparent = true;
 
 	if (tws->transparent)
 		obs_source_skip_video_filter(tws->source);
@@ -258,12 +260,49 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		} else {
 			gs_texrender_reset(tws->line_render);
 		}
+		if (tws->image.image.loaded) {
+			if (!tws->bg_line_render) {
+				tws->bg_line_render = gs_texrender_create(
+					GS_RGBA, GS_ZS_NONE);
+			} else {
+				gs_texrender_reset(tws->bg_line_render);
+			}
+		}
 	}
 
 	gs_blend_state_push();
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
 	if (scan_width > 0) {
+		if (tws->image.image.loaded &&
+		    gs_texrender_begin(
+			    tws->bg_line_render, (tws->cd + scan_width) * 2,
+			     scan_width)) {
+			struct vec4 clear_color;
+			vec4_zero(&clear_color);
+			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
+			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
+				  scan_width,
+				 -100.0f, 100.0f);
+
+			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
+			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
+					  RAD(tws->rotation));
+			gs_matrix_translate3f(
+				-1.0 * factor * tws->scan_x + tws->start_x,
+				-1.0 * factor * tws->scan_y + tws->start_y,
+				0.0f);
+			gs_effect_t *effect =
+				obs_get_base_effect(OBS_EFFECT_DEFAULT);
+			gs_effect_set_texture(
+				gs_effect_get_param_by_name(effect, "image"),
+				tws->image.image.texture);
+			while (gs_effect_loop(effect, "Draw"))
+				gs_draw_sprite(tws->image.image.texture, 0,
+					       tws->cx, tws->cy);
+
+			gs_texrender_end(tws->bg_line_render);
+		}
 		if (gs_texrender_begin(
 			    tws->line_render, (tws->cd + scan_width) * 2,
 			    tws->transparent ? scan_width : tws->cd)) {
@@ -281,20 +320,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				-1.0 * factor * tws->scan_x + tws->start_x,
 				-1.0 * factor * tws->scan_y + tws->start_y,
 				0.0f);
-			if (tws->image.image.loaded) {
-				gs_effect_t *effect =
-					obs_get_base_effect(OBS_EFFECT_DEFAULT);
-				gs_effect_set_texture(
-					gs_effect_get_param_by_name(effect,
-								    "image"),
-					tws->image.image.texture);
-				while (gs_effect_loop(effect, "Draw"))
-					gs_draw_sprite(tws->image.image.texture,
-						       0, tws->cx, tws->cy);
 
-				gs_blend_function(GS_BLEND_SRCALPHA,
-						  GS_BLEND_INVSRCALPHA);
-			}
 			const uint32_t parent_flags =
 				obs_source_get_output_flags(target);
 			const bool custom_draw =
@@ -307,7 +333,6 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				obs_source_video_render(target);
 
 			gs_texrender_end(tws->line_render);
-			gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 		}
 	}
 
@@ -327,6 +352,57 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		gs_matrix_translate3f(-1.0f * (scan_width + tws->cd), 0.0f,
 				      0.0f);
 		if (scan_width > 0) {
+			if (tws->image.image.loaded) {
+				gs_texture_t *tex = gs_texrender_get_texture(
+					tws->bg_line_render);
+				if (tex) {
+					gs_effect_t *effect =
+						obs_get_base_effect(
+							OBS_EFFECT_DEFAULT);
+					gs_eparam_t *image =
+						gs_effect_get_param_by_name(
+							effect, "image");
+					gs_effect_set_texture(image, tex);
+					while (gs_effect_loop(effect, "Draw"))
+						gs_draw_sprite(
+							tex, 0,
+							(tws->cd + scan_width) *
+								2,
+							scan_width);
+					gs_matrix_push();
+					gs_matrix_translate3f(
+						-1.0f * tws->line_width,
+						scan_width, 0.0f);
+					gs_effect_t *solid =
+						obs_get_base_effect(
+							OBS_EFFECT_SOLID);
+					gs_eparam_t *color =
+						gs_effect_get_param_by_name(
+							solid, "color");
+					gs_technique_t *tech =
+						gs_effect_get_technique(
+							solid, "Solid");
+					struct vec4 clear_color;
+					vec4_zero(&clear_color);
+					gs_effect_set_vec4(color,
+							   &clear_color);
+					gs_technique_begin(tech);
+					gs_technique_begin_pass(tech, 0);
+
+					gs_draw_sprite(0, 0,
+						       (tws->cd +
+							tws->line_width +
+							scan_width) *
+							       2,
+						       tws->cd);
+
+					gs_technique_end_pass(tech);
+					gs_technique_end(tech);
+					gs_matrix_pop();
+					gs_blend_function(GS_BLEND_SRCALPHA,
+							  GS_BLEND_INVSRCALPHA);
+				}
+			}
 			gs_texture_t *tex =
 				gs_texrender_get_texture(tws->line_render);
 			if (tex) {
