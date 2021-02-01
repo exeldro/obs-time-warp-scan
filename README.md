@@ -12,4 +12,6 @@ https://obsproject.com/forum/resources/time-warp-scan.1167/
 - Rebuild OBS Studio
 
 # Donations
-https://www.paypal.me/exeldro
+- https://www.paypal.me/exeldro
+- https://github.com/sponsors/exeldro
+- https://www.patreon.com/exeldro
