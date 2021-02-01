@@ -28,6 +28,7 @@ struct tws_info {
 	double start_y;
 	double scan_x;
 	double scan_y;
+	bool dst_line_opacity;
 };
 
 static const char *tws_get_name(void *type_data)
@@ -162,8 +163,14 @@ static void tws_update(void *data, obs_data_t *settings)
 	const uint32_t color =
 		(uint32_t)obs_data_get_int(settings, "line_color");
 	vec4_from_rgba(&tws->line_color, color);
-	tws->line_color.w =
-		(float)(obs_data_get_double(settings, "line_opacity") / 100.0);
+	tws->dst_line_opacity = obs_data_get_bool(settings, "dst_line_opacity");
+	if (tws->dst_line_opacity) {
+		tws->line_color.w = 1.0f;
+	} else {
+		tws->line_color.w =
+			(float)(obs_data_get_double(settings, "line_opacity") /
+				100.0);
+	}
 	tws->rotation =
 		(float)fmod(obs_data_get_double(settings, "rotation"), 360.0);
 	tws->transparent = obs_data_get_bool(settings, "transparent");
@@ -275,15 +282,14 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 
 	if (scan_width > 0) {
 		if (tws->image.image.loaded &&
-		    gs_texrender_begin(
-			    tws->bg_line_render, (tws->cd + scan_width) * 2,
-			     scan_width)) {
+		    gs_texrender_begin(tws->bg_line_render,
+				       (tws->cd + scan_width) * 2,
+				       scan_width)) {
 			struct vec4 clear_color;
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
-				  scan_width,
-				 -100.0f, 100.0f);
+				 scan_width, -100.0f, 100.0f);
 
 			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
@@ -384,8 +390,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 							solid, "Solid");
 					struct vec4 clear_color;
 					vec4_zero(&clear_color);
-					gs_effect_set_vec4(color,
-							   &clear_color);
+					gs_effect_set_vec4(color, &clear_color);
 					gs_technique_begin(tech);
 					gs_technique_begin_pass(tech, 0);
 
@@ -422,7 +427,13 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		}
 		gs_matrix_translate3f(-1.0f * tws->line_width, scan_width,
 				      0.0f);
-		gs_blend_function(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA);
+
+		if (tws->dst_line_opacity)
+			gs_blend_function(GS_BLEND_DSTALPHA,
+					  GS_BLEND_ZERO);
+		else
+			gs_blend_function(GS_BLEND_SRCALPHA,
+					  GS_BLEND_INVSRCALPHA);
 		gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 		gs_eparam_t *color =
 			gs_effect_get_param_by_name(solid, "color");
@@ -476,6 +487,8 @@ static obs_properties_t *tws_properties(void *data)
 
 	p = obs_properties_add_color(ppts, "line_color",
 				     obs_module_text("LineColor"));
+	p = obs_properties_add_bool(ppts, "dst_line_opacity",
+				    obs_module_text("DstLineOpacity"));
 	p = obs_properties_add_float_slider(ppts, "line_opacity",
 					    obs_module_text("LineOpacity"), 0.0,
 					    100.0, 1.0);
