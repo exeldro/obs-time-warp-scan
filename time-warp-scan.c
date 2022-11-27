@@ -92,8 +92,9 @@ void calc_scan(struct tws_info *tws)
 			tws->start_x = (double)tws->cx * -1.0;
 		}
 		tws->scan_x = 0.0;
-		tws->cd = ceil(sqrt((tws->cx * tws->cx) +
-				    (fabs(tws->scan_y) * fabs(tws->scan_y))));
+		tws->cd = (uint32_t)ceil(
+			sqrt((tws->cx * tws->cx) +
+			     (fabs(tws->scan_y) * fabs(tws->scan_y))));
 	} else {
 		// move x direction
 		if (line_length_moving_y < 0.0) {
@@ -124,8 +125,9 @@ void calc_scan(struct tws_info *tws)
 			tws->start_y = 0.0;
 		}
 		tws->scan_y = 0.0;
-		tws->cd = ceil(sqrt((tws->cy * tws->cy) +
-				    (fabs(tws->scan_x) * fabs(tws->scan_x))));
+		tws->cd = (uint32_t)ceil(
+			sqrt((tws->cy * tws->cy) +
+			     (fabs(tws->scan_x) * fabs(tws->scan_x))));
 	}
 }
 
@@ -220,6 +222,7 @@ static void draw_frame(struct tws_info *f)
 
 static void tws_video_render(void *data, gs_effect_t *effect)
 {
+	UNUSED_PARAMETER(effect);
 	struct tws_info *tws = data;
 	obs_source_t *target = obs_filter_get_target(tws->source);
 	obs_source_t *parent = obs_filter_get_parent(tws->source);
@@ -249,17 +252,18 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	double factor;
 	float new_line_position;
 	if (fabs(tws->scan_x) > fabs(tws->scan_y)) {
-		new_line_position =
-			fabs(tws->scan_x) *
-			(tws->duration * 1000.0 / (double)tws->scan_duration);
+		new_line_position = (float)(fabs(tws->scan_x) *
+					    (tws->duration * 1000.0 /
+					     (double)tws->scan_duration));
 		factor = tws->line_position / fabs(tws->scan_x);
 	} else {
-		new_line_position =
-			fabs(tws->scan_y) *
-			(tws->duration * 1000.0 / (double)tws->scan_duration);
+		new_line_position = (float)(fabs(tws->scan_y) *
+					    (tws->duration * 1000.0 /
+					     (double)tws->scan_duration));
 		factor = tws->line_position / fabs(tws->scan_y);
 	}
-	uint32_t scan_width = ceil(new_line_position - tws->line_position);
+	uint32_t scan_width =
+		(uint32_t)ceil(new_line_position - tws->line_position);
 	if (scan_width > 0) {
 		if (!tws->line_render) {
 			tws->line_render =
@@ -289,14 +293,17 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
-				 scan_width, -100.0f, 100.0f);
+				 (float)scan_width, -100.0f, 100.0f);
 
-			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
+			gs_matrix_translate3f((float)(tws->cd + scan_width),
+					      0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
 					  RAD(tws->rotation));
 			gs_matrix_translate3f(
-				-1.0 * factor * tws->scan_x + tws->start_x,
-				-1.0 * factor * tws->scan_y + tws->start_y,
+				(float)(-1.0 * factor * tws->scan_x +
+					tws->start_x),
+				(float)(-1.0 * factor * tws->scan_y +
+					tws->start_y),
 				0.0f);
 			gs_effect_t *effect =
 				obs_get_base_effect(OBS_EFFECT_DEFAULT);
@@ -316,15 +323,19 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 			vec4_zero(&clear_color);
 			gs_clear(GS_CLEAR_COLOR, &clear_color, 0.0f, 0);
 			gs_ortho(0.0f, (float)(tws->cd + scan_width) * 2, 0.0f,
-				 tws->transparent ? scan_width : tws->cd,
+				 (float)(tws->transparent ? scan_width
+							  : tws->cd),
 				 -100.0f, 100.0f);
 
-			gs_matrix_translate3f(tws->cd + scan_width, 0.0f, 0.0f);
+			gs_matrix_translate3f((float)(tws->cd + scan_width),
+					      0.0f, 0.0f);
 			gs_matrix_rotaa4f(0.0f, 0.0f, -1.0f,
 					  RAD(tws->rotation));
 			gs_matrix_translate3f(
-				-1.0 * factor * tws->scan_x + tws->start_x,
-				-1.0 * factor * tws->scan_y + tws->start_y,
+				(float)(-1.0 * factor * tws->scan_x +
+					tws->start_x),
+				(float)(-1.0 * factor * tws->scan_y +
+					tws->start_y),
 				0.0f);
 
 			const uint32_t parent_flags =
@@ -350,9 +361,9 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		}
 		gs_ortho(0.0f, (float)tws->cx, 0, (float)tws->cy, -100.0f,
 			 100.0f);
-		gs_matrix_translate3f(factor * tws->scan_x - tws->start_x,
-				      factor * tws->scan_y - tws->start_y,
-				      0.0f);
+		gs_matrix_translate3f(
+			(float)(factor * tws->scan_x - tws->start_x),
+			(float)(factor * tws->scan_y - tws->start_y), 0.0f);
 
 		gs_matrix_rotaa4f(0.0f, 0.0f, 1.0f, RAD(tws->rotation));
 		gs_matrix_translate3f(-1.0f * (scan_width + tws->cd), 0.0f,
@@ -378,7 +389,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 					gs_matrix_push();
 					gs_matrix_translate3f(
 						-1.0f * tws->line_width,
-						scan_width, 0.0f);
+						(float)scan_width, 0.0f);
 					gs_effect_t *solid =
 						obs_get_base_effect(
 							OBS_EFFECT_SOLID);
@@ -425,12 +436,11 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 								 : tws->cd);
 			}
 		}
-		gs_matrix_translate3f(-1.0f * tws->line_width, scan_width,
-				      0.0f);
+		gs_matrix_translate3f(-1.0f * tws->line_width,
+				      (float)scan_width, 0.0f);
 
 		if (tws->dst_line_opacity)
-			gs_blend_function(GS_BLEND_DSTALPHA,
-					  GS_BLEND_ZERO);
+			gs_blend_function(GS_BLEND_DSTALPHA, GS_BLEND_ZERO);
 		else
 			gs_blend_function(GS_BLEND_SRCALPHA,
 					  GS_BLEND_INVSRCALPHA);
@@ -475,6 +485,7 @@ static const char *image_filter =
 
 static obs_properties_t *tws_properties(void *data)
 {
+	UNUSED_PARAMETER(data);
 	obs_properties_t *ppts = obs_properties_create();
 	obs_property_t *p = obs_properties_add_int(
 		ppts, "scan_duration", obs_module_text("ScanDuration"), 0,
@@ -502,7 +513,11 @@ static obs_properties_t *tws_properties(void *data)
 	obs_properties_add_path(ppts, "image",
 				obs_module_text("BackgroundImage"),
 				OBS_PATH_FILE, image_filter, NULL);
-
+	obs_properties_add_text(
+		ppts, "plugin_info",
+		"<a href=\"https://obsproject.com/forum/resources/time-warp-scan.1167/\">Time Warp Scan</a> (" PROJECT_VERSION
+		") by <a href=\"https://www.exeldro.com\">Exeldro</a>",
+		OBS_TEXT_INFO);
 	return ppts;
 }
 
@@ -517,6 +532,8 @@ void tws_defaults(obs_data_t *settings)
 bool tws_enable_hotkey(void *data, obs_hotkey_pair_id id, obs_hotkey_t *hotkey,
 		       bool pressed)
 {
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
 	struct tws_info *tws = data;
 	if (!pressed)
 		return false;
@@ -530,6 +547,8 @@ bool tws_enable_hotkey(void *data, obs_hotkey_pair_id id, obs_hotkey_t *hotkey,
 bool tws_disable_hotkey(void *data, obs_hotkey_pair_id id, obs_hotkey_t *hotkey,
 			bool pressed)
 {
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
 	struct tws_info *tws = data;
 	if (!pressed)
 		return false;
