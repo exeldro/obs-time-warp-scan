@@ -1,7 +1,6 @@
 #include <obs-module.h>
 #include "time-warp-scan.h"
 #include "version.h"
-#include "graphics/image-file.h"
 
 struct tws_info {
 	obs_source_t *source;
@@ -9,7 +8,7 @@ struct tws_info {
 	gs_texrender_t *scan_render;
 	gs_texrender_t *line_render;
 	gs_texrender_t *bg_line_render;
-	gs_image_file2_t image;
+	gs_texture_t* image;
 	uint32_t cx;
 	uint32_t cy;
 	uint32_t cd;
@@ -48,7 +47,7 @@ static void free_textures(struct tws_info *f)
 	f->line_render = NULL;
 	gs_texrender_destroy(f->bg_line_render);
 	f->bg_line_render = NULL;
-	gs_image_file2_free(&f->image);
+	gs_texture_destroy(f->image);
 	obs_leave_graphics();
 }
 
@@ -178,10 +177,11 @@ static void tws_update(void *data, obs_data_t *settings)
 	tws->transparent = obs_data_get_bool(settings, "transparent");
 	const char *file = obs_data_get_string(settings, "image");
 	obs_enter_graphics();
-	gs_image_file2_free(&tws->image);
+	gs_texture_destroy(tws->image);
 	if (file && *file) {
-		gs_image_file2_init(&tws->image, file);
-		gs_image_file2_init_texture(&tws->image);
+		tws->image = gs_texture_create_from_file(file);
+	} else {
+		tws->image = NULL;
 	}
 	obs_leave_graphics();
 
@@ -271,7 +271,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		} else {
 			gs_texrender_reset(tws->line_render);
 		}
-		if (tws->image.image.loaded) {
+		if (tws->image) {
 			if (!tws->bg_line_render) {
 				tws->bg_line_render = gs_texrender_create(
 					GS_RGBA, GS_ZS_NONE);
@@ -285,7 +285,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 
 	if (scan_width > 0) {
-		if (tws->image.image.loaded &&
+		if (tws->image &&
 		    gs_texrender_begin(tws->bg_line_render,
 				       (tws->cd + scan_width) * 2,
 				       scan_width)) {
@@ -309,9 +309,9 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 				obs_get_base_effect(OBS_EFFECT_DEFAULT);
 			gs_effect_set_texture(
 				gs_effect_get_param_by_name(effect, "image"),
-				tws->image.image.texture);
+				tws->image);
 			while (gs_effect_loop(effect, "Draw"))
-				gs_draw_sprite(tws->image.image.texture, 0,
+				gs_draw_sprite(tws->image, 0,
 					       tws->cx, tws->cy);
 
 			gs_texrender_end(tws->bg_line_render);
@@ -369,7 +369,7 @@ static void tws_video_render(void *data, gs_effect_t *effect)
 		gs_matrix_translate3f(-1.0f * (scan_width + tws->cd), 0.0f,
 				      0.0f);
 		if (scan_width > 0) {
-			if (tws->image.image.loaded) {
+			if (tws->image) {
 				gs_texture_t *tex = gs_texrender_get_texture(
 					tws->bg_line_render);
 				if (tex) {
