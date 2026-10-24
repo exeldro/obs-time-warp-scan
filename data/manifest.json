@@ -1,0 +1,16 @@
+{
+    "display_name": "Time Warp Scan",
+    "id": "d271c8a8-faac-4791-af64-31ddd99191bc",
+    "version": "0.1.8",
+    "authors": ["Exeldro"],
+    "name": "time-warp-scan",
+    "description": "Time Warp Scan filter for OBS Studio",
+    "long_description": "Time Warp Scan filter for OBS Studio",
+    "urls": {
+        "repository": "https://github.com/exeldro/obs-time-warp-scan",
+        "website": "https://obsproject.com/forum/resources/time-warp-scan.1167/",
+        "support": "https://obsproject.com/forum/threads/time-warp-scan.136100/"
+    },
+    "has_banner": false,
+    "has_icon": false
+}

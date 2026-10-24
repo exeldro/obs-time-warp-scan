@@ -265,7 +265,7 @@ if(OS_MACOS)
   # Set macOS-specific C++ standard library
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
-    PRIVATE "$<$<COMPILE_LANG_AND_ID:OBJC,AppleClang,Clang>:-fcolor-diagnostics>" -stdlib=libc++)
+    PRIVATE "$<$<COMPILE_LANG_AND_ID:OBJC,AppleClang,Clang>:-fcolor-diagnostics>")
 
   # Set build architecture to host architecture by default
   if(NOT CMAKE_OSX_ARCHITECTURES)
@@ -466,7 +466,7 @@ if(OS_MACOS)
         target_sources(${target} PRIVATE ${_DATA_FILE})
         set_source_files_properties(${_DATA_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION
                                                              Resources/${_RELATIVE_PATH})
-        string(REPLACE "\\" "\\\\" _GROUP_NAME ${_RELATIVE_PATH})
+        string(REPLACE "\\" "\\\\" _GROUP_NAME "${_RELATIVE_PATH}")
         source_group("Resources\\${_GROUP_NAME}" FILES ${_DATA_FILE})
       endforeach()
     endif()

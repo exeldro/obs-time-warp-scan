@@ -6,7 +6,7 @@ else()
   cmake_minimum_required(VERSION 3.18)
 endif()
 
-project(time-warp-scan VERSION 0.1.7)
+project(time-warp-scan VERSION 0.1.8)
 set(PROJECT_FULL_NAME "Time Warp Scan")
 
 # Set new UUIDs when you start to create a new plugin.
